@@ -6,7 +6,7 @@ class MockTicketSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MockHelpdeskTicket
-        exclude = ['reply_url']
+        exclude = ['reply_url', 'event_id']
 
 
 class MockReplySerializer(serializers.ModelSerializer):

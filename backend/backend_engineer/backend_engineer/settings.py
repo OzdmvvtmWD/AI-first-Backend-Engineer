@@ -147,8 +147,8 @@ MAILERS = {
     },
 }
 
-WEBHOOK_URL = 'http://backend:8000/webhooks/helpdesk/'
-MOCK_HELPDESK_PUBLIC_URL = 'http://backend:8000'
+WEBHOOK_URL = 'http://localhost:1337/api/v1/webhooks/helpdesk/'
+MOCK_HELPDESK_PUBLIC_URL = 'http://localhost:1337/'
 
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_BROKER", "redis://redis:6379/0")

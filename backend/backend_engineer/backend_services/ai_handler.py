@@ -1,26 +1,44 @@
-from collections import Counter
-from sentence_transformers import SentenceTransformer
+import os
+from openai import OpenAI
 
-model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
+from .promt import SYSTEM_PROMPT, STATIC_ANSWER
 
-def get_relevant_articles(query, top_k=3, threshold=0.4):
-    most_valid_result = []
+def generate_static_draft(knowledge_articles):
 
-    documents = []
-        
-    query_embedding = model.encode_query(query)
-    document_embeddings = model.encode_document(documents)
-    scores = model.similarity(query_embedding, document_embeddings)[0]
-
-    for index in scores.argsort(descending=True):
-        print(f"{scores[index]:.4f}: {documents[index]}")
-        # results[documents[index]] = scores[index]
-
-        if scores[index] >= threshold:
-            most_valid_result.append(documents[index])
-
-    return most_valid_result
+    return (
+       f"{STATIC_ANSWER}"
+        "Статі з бази знань :"
+        f"{knowledge_articles}"
+    )
 
 
-def make_responce_draft():
-    pass
+def generate_draft(ticket_message, knowledge_articles):
+
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": f"""
+                    Звернення клієнта:
+                    {ticket_message}
+
+                    Статі з бази знань :
+                    {knowledge_articles}
+
+                    Підготов відповідь клієнту.
+                """
+            }
+        ],
+        temperature=0.3
+    )
+
+    return response.choices[0].message.content

@@ -1,10 +1,12 @@
+import json
+
 from django.http import JsonResponse, HttpResponseBadRequest
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -27,13 +29,10 @@ class MockHelpdeskTicketSenderView(APIView):
                 )
 
         except IntegrityError:
-            ticket = MockHelpdeskTicket.objects.get(
-                event_id=serializer.validated_data['event_id']
-            )
 
             return Response(
                 {
-                    'ticket_id': ticket.ticket_id,
+                    'event_id': serializer.validated_data["event_id"],
                     'status': 'already_received',
                 },
                 status=status.HTTP_200_OK,
@@ -52,20 +51,29 @@ class MockHelpdeskTicketSenderView(APIView):
     
 class MockHelpdeskTicketReplierView(APIView):
 
-    def post(self, request, ticket_id):
+    def post(self, request):
 
-        ticket = get_object_or_404(
-            MockHelpdeskTicket,
-            ticket_id=ticket_id,
-        )
+        ticket_id = request.data.get("ticket_id")
+
+        if not ticket_id:
+            return Response(
+                {"error": "ticket_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         message = request.data.get("message")
-
+    
         if not message:
             return Response(
                 {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+        ticket = get_object_or_404(
+            MockHelpdeskTicket,
+            ticket_id=ticket_id,
+        )
 
         reply, created = MockHelpdeskReply.objects.get_or_create(
             ticket=ticket,
@@ -75,8 +83,6 @@ class MockHelpdeskTicketReplierView(APIView):
         if created:
             return Response(
                 {
-                    "ticket_id": ticket.ticket_id,
-                    "message": reply.message,
                     "status": "created",
                 },
                 status=status.HTTP_201_CREATED,
@@ -88,4 +94,29 @@ class MockHelpdeskTicketReplierView(APIView):
                 "status": "already_received",
             },
             status=status.HTTP_200_OK,
+        )
+
+class RepliesForHelpdeskViews(APIView):
+
+    def post(self, request, ticket_id):
+
+        # if request.method != "POST":
+        #     return HttpResponseBadRequest("Invalid request method.")
+
+        ticket = get_object_or_404(
+                MockHelpdeskTicket,
+                ticket_id=ticket_id,
+            )
+
+        reply_t = get_object_or_404(
+                MockHelpdeskReply,
+                ticket_id=ticket,
+            )
+
+        return Response(
+            {
+                "ticket_id": ticket.ticket_id,
+                "message": reply_t.message,
+            },
+            status=status.HTTP_201_CREATED,
         )
