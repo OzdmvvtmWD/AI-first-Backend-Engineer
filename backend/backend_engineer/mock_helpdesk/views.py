@@ -12,76 +12,64 @@ from rest_framework.response import Response
 from .models import MockHelpdeskTicket, MockHelpdeskReply
 from .serializers import MockTicketSerializer, MockReplySerializer
 from .webhook_handler import send_webhook
-
+from .tasks import retry_timeout
 
 class MockHelpdeskTicketSenderView(APIView):
 
-    def post(self, request, format=None):
+    def post(self, request):
+
         serializer = MockTicketSerializer(data=request.data)
-        serializer.is_valid(raise_exception = True)
+        serializer.is_valid(raise_exception=True)
 
         ticket = serializer.save()
 
-        try:
-            send_webhook(ticket)
-        except Exception:
-            
-            return Response(
-                {
-                    'ticket_id': ticket.ticket_id,
-                    'status': 'created',
-                    'webhook_status': 'failed',
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
+        retry_timeout.delay_on_commit(ticket.pk)
 
         return Response(
             {
                 'ticket_id': ticket.ticket_id,
                 'status': 'created',
-                'webhook_status': 'delivered',
+                'webhook_status': 'pending',
             },
             status=status.HTTP_201_CREATED,
         )
-
+    
 class MockHelpdeskTicketReplierView(APIView):
 
     def post(self, request, ticket_id):
-        
-        ticket_g = get_object_or_404(
+
+        ticket = get_object_or_404(
             MockHelpdeskTicket,
             ticket_id=ticket_id,
         )
 
-        message = request.data.get('message')
+        message = request.data.get("message")
 
         if not message:
             return Response(
-                {'error': 'message are required'},
+                {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-#         with transaction.atomic():
-
         reply, created = MockHelpdeskReply.objects.get_or_create(
-            ticket = ticket_g.ticket_id,
-            defaults={
-                'message': message,
-            },
+            ticket=ticket,
+            defaults={"message": message},
         )
 
         if created:
-      
             return Response(
                 {
-                    'ticket_id': reply.ticket_id,
-                    'message': reply.message,
+                    "ticket_id": ticket.ticket_id,
+                    "message": reply.message,
+                    "status": "created",
                 },
                 status=status.HTTP_201_CREATED,
             )
 
-        else:
-            return Response(
-                {'status': 'already_received'},
-                status=status.HTTP_200_OK,
-            )
+        return Response(
+            {
+                "ticket_id": ticket.ticket_id,
+                "status": "already_received",
+            },
+            status=status.HTTP_200_OK,
+        )

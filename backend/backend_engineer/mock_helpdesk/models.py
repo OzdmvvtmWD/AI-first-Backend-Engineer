@@ -13,7 +13,7 @@ class MockHelpdeskTicket(models.Model):
 
 
 class MockHelpdeskReply(models.Model):
-    ticket = models.ForeignKey(
+    ticket = models.OneToOneField(
         MockHelpdeskTicket,
         on_delete=models.CASCADE,
         related_name='replies'
