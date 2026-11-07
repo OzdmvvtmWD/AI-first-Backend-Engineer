@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'rest_framework',
     
     'mock_helpdesk',
+    'backend_services',
+    'articles',
 
 ]
 

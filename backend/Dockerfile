@@ -33,6 +33,13 @@ COPY --from=builder /app/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache /wheels/*
 
+ENV SENTENCE_TRANSFORMERS_MODEL=Qwen/Qwen3-Embedding-0.6B
+ENV SENTENCE_TRANSFORMERS_HOME=/app/backend_engineer/embedding_models
+
+COPY backend_engineer/backend_services/download_model.py /app/backend_engineer/backend_services/download_model.py
+
+RUN python /app/backend_engineer/backend_services/download_model.py
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
