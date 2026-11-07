@@ -11,7 +11,6 @@ from rest_framework.response import Response
 
 from .models import MockHelpdeskTicket, MockHelpdeskReply
 from .serializers import MockTicketSerializer, MockReplySerializer
-from .webhook_handler import send_webhook
 from .tasks import retry_timeout
 
 class MockHelpdeskTicketSenderView(APIView):
@@ -21,7 +20,24 @@ class MockHelpdeskTicketSenderView(APIView):
         serializer = MockTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        ticket = serializer.save()
+        try:
+            with transaction.atomic():
+                ticket = MockHelpdeskTicket.objects.create(
+                    **serializer.validated_data
+                )
+
+        except IntegrityError:
+            ticket = MockHelpdeskTicket.objects.get(
+                event_id=serializer.validated_data['event_id']
+            )
+
+            return Response(
+                {
+                    'ticket_id': ticket.ticket_id,
+                    'status': 'already_received',
+                },
+                status=status.HTTP_200_OK,
+            )
 
         retry_timeout.delay_on_commit(ticket.pk)
 
