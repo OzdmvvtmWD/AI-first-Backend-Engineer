@@ -26,6 +26,7 @@ def send_webhook(ticket):
         json=payload,
         timeout=2,
     )
+    print(response)
 
     response.raise_for_status()
 

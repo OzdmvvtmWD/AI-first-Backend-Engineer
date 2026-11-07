@@ -4,3 +4,4 @@ migrations
 .env
 .env.*
 !.env.example
+embedding_models

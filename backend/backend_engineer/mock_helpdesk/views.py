@@ -1,21 +1,28 @@
-import json
+from django.db import IntegrityError, transaction
+from django.http import HttpResponseBadRequest
+from django.shortcuts import get_object_or_404
 
-from django.http import JsonResponse, HttpResponseBadRequest
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.db import IntegrityError, transaction
-from django.shortcuts import get_object_or_404
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
 
 from .models import MockHelpdeskTicket, MockHelpdeskReply
 from .serializers import MockTicketSerializer, MockReplySerializer
 from .tasks import retry_timeout
 
+
 class MockHelpdeskTicketSenderView(APIView):
+
+    def get(self, request, format=None):
+
+        tickets = MockHelpdeskTicket.objects.all()
+
+        serializer = MockTicketSerializer(
+            tickets,
+            many=True
+        )
+
+        return Response(serializer.data)
 
     def post(self, request):
 
@@ -24,99 +31,122 @@ class MockHelpdeskTicketSenderView(APIView):
 
         try:
             with transaction.atomic():
+
                 ticket = MockHelpdeskTicket.objects.create(
-                    **serializer.validated_data
+                    **serializer.validated_data,
+                    status=MockHelpdeskTicket.Status.PENDING,
                 )
+
+                retry_timeout.delay_on_commit(ticket.pk)
 
         except IntegrityError:
 
             return Response(
                 {
-                    'event_id': serializer.validated_data["event_id"],
-                    'status': 'already_received',
+                    "event_id": serializer.validated_data["event_id"],
+                    "status": "already_received",
                 },
                 status=status.HTTP_200_OK,
             )
 
-        retry_timeout.delay_on_commit(ticket.pk)
-
         return Response(
             {
-                'ticket_id': ticket.ticket_id,
-                'status': 'created',
-                'webhook_status': 'pending',
+                "ticket_id": ticket.ticket_id,
+                "status": ticket.status,
+                # "webhook_status": "pending",
             },
             status=status.HTTP_201_CREATED,
         )
-    
+
 class MockHelpdeskTicketReplierView(APIView):
+
+    
+    def get(self, request, format=None):
+
+        replies = MockHelpdeskReply.objects.select_related(
+            "ticket"
+        ).all()
+
+        serializer = MockReplySerializer(
+            replies,
+            many=True
+        )
+
+        return Response(serializer.data)
+
 
     def post(self, request):
 
         ticket_id = request.data.get("ticket_id")
-
-        if not ticket_id:
-            return Response(
-                {"error": "ticket_id is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         message = request.data.get("message")
-    
-        if not message:
+
+        if not ticket_id or not message:
             return Response(
-                {"error": "message is required"},
+                {"error": "ticket_id and message are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        with transaction.atomic():
+
+            ticket = get_object_or_404(
+                MockHelpdeskTicket.objects.select_for_update(),
+                ticket_id=ticket_id,
+            )
+
+            reply = MockHelpdeskReply.objects.filter(
+                ticket=ticket
+            ).first()
+
+            if reply:
+                return Response(
+                    {
+                        "ticket_id": ticket.ticket_id,
+                        "status": "already_received",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            MockHelpdeskReply.objects.create(
+                ticket=ticket,
+                message=message,
+                status=MockHelpdeskReply.Status.DONE,
+            )
+
+            ticket.status = MockHelpdeskTicket.Status.DONE
+            ticket.save(update_fields=["status"])
+
+        return Response(
+            {
+                "ticket_id": ticket.ticket_id,
+                "status": "created",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class RepliesForHelpdeskViews(APIView):
+
+    def post(self, request, ticket_id):
+
+        if request.method != "POST":
+                return HttpResponseBadRequest(
+                    "Invalid request method."
+                )
 
         ticket = get_object_or_404(
             MockHelpdeskTicket,
             ticket_id=ticket_id,
         )
 
-        reply, created = MockHelpdeskReply.objects.get_or_create(
+        reply = get_object_or_404(
+            MockHelpdeskReply,
             ticket=ticket,
-            defaults={"message": message},
         )
-
-        if created:
-            return Response(
-                {
-                    "status": "created",
-                },
-                status=status.HTTP_201_CREATED,
-            )
 
         return Response(
             {
                 "ticket_id": ticket.ticket_id,
-                "status": "already_received",
+                "message": reply.message,
             },
             status=status.HTTP_200_OK,
-        )
-
-class RepliesForHelpdeskViews(APIView):
-
-    def post(self, request, ticket_id):
-
-        # if request.method != "POST":
-        #     return HttpResponseBadRequest("Invalid request method.")
-
-        ticket = get_object_or_404(
-                MockHelpdeskTicket,
-                ticket_id=ticket_id,
-            )
-
-        reply_t = get_object_or_404(
-                MockHelpdeskReply,
-                ticket_id=ticket,
-            )
-
-        return Response(
-            {
-                "ticket_id": ticket.ticket_id,
-                "message": reply_t.message,
-            },
-            status=status.HTTP_201_CREATED,
         )
